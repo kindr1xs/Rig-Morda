@@ -1,0 +1,1391 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Rick & Morty: Two Planets</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; user-select:none; -webkit-user-select:none; touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#050510; font-family:'Courier New', monospace; }
+  body { display:flex; justify-content:center; align-items:center; }
+  #game-container { position:relative; width:100vw; height:100vh; max-width:100%; max-height:100%; background:#0a0a1a; overflow:hidden; }
+  canvas { display:block; width:100%; height:100%; image-rendering:pixelated; image-rendering:crisp-edges; touch-action:none; }
+  #ui { position:absolute; inset:0; pointer-events:none; display:flex; flex-direction:column; justify-content:space-between; padding:8px; }
+  #top-bar { display:flex; justify-content:space-between; align-items:flex-start; width:100%; gap:8px; }
+  .player-hud { flex:1; max-width:38%; }
+  .player-hud.right { text-align:right; }
+  .player-name { font-size:12px; font-weight:bold; color:#fff; text-shadow:2px 2px 0 #000; margin-bottom:4px; letter-spacing:1px; }
+  .player-hud.p1 .player-name { color:#66ccff; }
+  .player-hud.p2 .player-name { color:#ffdd33; }
+  .player-hud.dead .player-name { color:#888 !important; }
+  .hp-bar { background:#333; border:2px solid #000; height:14px; border-radius:3px; overflow:hidden; box-shadow:0 0 0 1px #fff3; }
+  .hp-bar.right { direction:rtl; }
+  .hp-fill { height:100%; background:#00ff00; transition:width 0.15s; width:100%; }
+  .hp-fill.low { background:#ff4444; }
+  #score { color:#ff0; font-size:15px; font-weight:bold; text-shadow:2px 2px 0 #000; background:rgba(0,0,0,0.75); padding:6px 12px; border-radius:5px; border:2px solid #ff0; white-space:nowrap; align-self:center; }
+  #controls { display:flex; justify-content:space-between; align-items:flex-end; width:100%; pointer-events:none; padding-bottom:6px; gap:6px; }
+  .player-controls { display:flex; align-items:flex-end; gap:6px; pointer-events:none; }
+  .joystick-zone { width:78px; height:78px; pointer-events:auto; position:relative; }
+  .buttons-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px; pointer-events:auto; }
+  .action-btn { width:36px; height:36px; border-radius:50%; background:rgba(255,255,255,0.12); border:2px solid #fff; color:#fff; font-size:9px; font-weight:bold; font-family:'Courier New', monospace; display:flex; justify-content:center; align-items:center; text-shadow:1px 1px 0 #000; box-shadow:0 3px 0 rgba(0,0,0,0.6); touch-action:manipulation; cursor:pointer; transition:opacity 0.15s; position:relative; overflow:hidden; }
+  .action-btn:active { transform:translateY(3px); box-shadow:0 0 0 rgba(0,0,0,0.6); }
+  .action-btn.cooldown { opacity:0.35; filter:grayscale(0.8); }
+  .action-btn.cooldown::after { content:attr(data-cd); position:absolute; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; font-size:11px; color:#fff; }
+  .p1-jump { background:rgba(0,150,255,0.3); border-color:#33aaff; }
+  .p1-fire { background:rgba(51,255,51,0.25); border-color:#33ff33; }
+  .p1-melee { background:rgba(255,140,0,0.3); border-color:#ff8800; }
+  .p1-portal { background:rgba(0,255,200,0.3); border-color:#00ffcc; }
+  .p2-jump { background:rgba(255,200,0,0.3); border-color:#ffcc00; }
+  .p2-fire { background:rgba(255,150,50,0.3); border-color:#ff9933; }
+  .p2-melee { background:rgba(255,80,180,0.3); border-color:#ff44aa; }
+  .p2-portal { background:rgba(180,100,255,0.3); border-color:#aa66ff; }
+  .player-controls.dead .joystick-zone, .player-controls.dead .buttons-grid { opacity:0; pointer-events:none; }
+  .revive-overlay { position:absolute; bottom:30%; transform:translateX(-50%); z-index:20; pointer-events:auto; display:none; }
+  .revive-overlay.p1 { left:25%; }
+  .revive-overlay.p2 { left:75%; }
+  .revive-overlay.active { display:block; }
+  .revive-btn { padding:18px 28px; font-size:15px; font-weight:bold; font-family:'Courier New', monospace; color:#fff; border:3px solid #fff; border-radius:14px; background:linear-gradient(135deg, #ff3377, #aa0055); box-shadow:0 6px 0 rgba(0,0,0,0.5), 0 0 30px rgba(255,51,119,0.6); cursor:pointer; text-shadow:2px 2px 0 #000; animation:pulseRevive 1s ease-in-out infinite; white-space:nowrap; }
+  .revive-btn.countdown { background:linear-gradient(135deg, #555, #333); animation:none; box-shadow:0 6px 0 rgba(0,0,0,0.5); cursor:not-allowed; }
+  .revive-btn:active:not(.countdown) { transform:translateY(6px); box-shadow:0 0 0 rgba(0,0,0,0.5); }
+  @keyframes pulseRevive { 0%, 100% { transform:scale(1); } 50% { transform:scale(1.06); } }
+  .overlay { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; align-items:center; padding:20px; z-index:50; pointer-events:auto; text-align:center; }
+  #lobby { background:radial-gradient(circle at 30% 30%, rgba(60,20,100,0.95), rgba(5,5,20,0.98)); }
+  #lobby h1 { font-size:clamp(28px, 7vw, 56px); color:#66ff99; text-shadow:4px 4px 0 #003322, 0 0 30px #00ff88; margin-bottom:6px; letter-spacing:3px; }
+  #lobby h2 { font-size:clamp(16px, 3vw, 24px); color:#ffcc00; text-shadow:2px 2px 0 #000; margin-bottom:30px; letter-spacing:2px; }
+  #lobby .controls-info { background:rgba(0,0,0,0.5); border:2px solid #3388ff; border-radius:12px; padding:16px 20px; margin-bottom:24px; max-width:520px; font-size:clamp(11px, 2vw, 14px); line-height:1.5; color:#fff; }
+  #lobby .controls-info .p1-info { color:#66ccff; text-align:left; margin-bottom:8px; }
+  #lobby .controls-info .p2-info { color:#ffdd33; text-align:left; margin-bottom:8px; }
+  #lobby .controls-info .warning { color:#ff6666; font-weight:bold; margin-top:10px; text-align:center; }
+  .big-btn { padding:20px 60px; font-size:clamp(20px, 4vw, 28px); background:linear-gradient(135deg, #00ff88, #00aa55); border:none; border-radius:16px; color:#000; font-weight:bold; cursor:pointer; box-shadow:0 8px 0 #005522, 0 0 30px rgba(0,255,136,0.5); font-family:'Courier New', monospace; letter-spacing:2px; }
+  .big-btn:active { transform:translateY(8px); box-shadow:0 0 0 #005522; }
+  #game-over { background:radial-gradient(circle at 50% 40%, rgba(120,0,0,0.95), rgba(5,5,20,0.98)); display:none; }
+  #game-over h1 { font-size:clamp(28px, 6vw, 48px); color:#ff3333; text-shadow:4px 4px 0 #000, 0 0 30px #ff0000; margin-bottom:16px; letter-spacing:3px; }
+  #game-over .final { font-size:clamp(20px, 3.5vw, 28px); color:#ffcc00; margin-bottom:30px; }
+  #game-over .msg { font-size:clamp(13px, 2.5vw, 18px); color:#aaa; margin-bottom:30px; max-width:450px; }
+  #lobby-btn { padding:18px 55px; font-size:clamp(18px, 3vw, 24px); background:linear-gradient(135deg, #66ccff, #2266aa); border:none; border-radius:14px; color:#fff; font-weight:bold; cursor:pointer; box-shadow:0 8px 0 #003366; font-family:'Courier New', monospace; letter-spacing:2px; }
+  #lobby-btn:active { transform:translateY(8px); box-shadow:0 0 0 #003366; }
+  @media (min-width: 500px) {
+    #ui { padding:10px; }
+    .joystick-zone { width:95px; height:95px; }
+    .action-btn { width:45px; height:45px; font-size:11px; }
+    .player-name { font-size:14px; }
+    .hp-bar { height:16px; }
+    #score { font-size:17px; padding:8px 15px; }
+    .revive-btn { padding:22px 38px; font-size:18px; }
+  }
+  @media (min-width: 700px) {
+    .joystick-zone { width:115px; height:115px; }
+    .action-btn { width:55px; height:55px; font-size:13px; border-width:3px; }
+    .buttons-grid { gap:6px; }
+    .player-name { font-size:17px; margin-bottom:6px; }
+    .hp-bar { height:18px; border-width:3px; }
+    #score { font-size:18px; padding:9px 18px; border-width:3px; }
+    .revive-btn { padding:26px 50px; font-size:22px; }
+  }
+  @media (min-width: 1000px) {
+    .joystick-zone { width:140px; height:140px; }
+    .action-btn { width:68px; height:68px; font-size:15px; }
+    .player-name { font-size:20px; }
+    .hp-bar { height:22px; }
+    #score { font-size:22px; padding:12px 22px; }
+    .revive-btn { padding:30px 60px; font-size:26px; }
+  }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <canvas id="gameCanvas"></canvas>
+  <div id="ui">
+    <div id="top-bar">
+      <div class="player-hud p1" id="p1-hud">
+        <div class="player-name" id="p1-name">◄ RICK</div>
+        <div class="hp-bar"><div class="hp-fill" id="hp1-fill"></div></div>
+      </div>
+      <div id="score">KILLS: 0</div>
+      <div class="player-hud p2 right" id="p2-hud">
+        <div class="player-name" id="p2-name">MORTY ►</div>
+        <div class="hp-bar right"><div class="hp-fill" id="hp2-fill"></div></div>
+      </div>
+    </div>
+    <div id="controls">
+      <div class="player-controls" id="p1-controls">
+        <div id="joy1-zone" class="joystick-zone"></div>
+        <div class="buttons-grid">
+          <button class="action-btn p1-jump" id="jump1">JMP</button>
+          <button class="action-btn p1-fire" id="fire1">FIRE</button>
+          <button class="action-btn p1-melee" id="melee1">HIT</button>
+          <button class="action-btn p1-portal" id="portal1">PORT</button>
+        </div>
+      </div>
+      <div class="player-controls" id="p2-controls">
+        <div class="buttons-grid">
+          <button class="action-btn p2-jump" id="jump2">JMP</button>
+          <button class="action-btn p2-fire" id="fire2">FIRE</button>
+          <button class="action-btn p2-melee" id="melee2">HIT</button>
+          <button class="action-btn p2-portal" id="portal2">PORT</button>
+        </div>
+        <div id="joy2-zone" class="joystick-zone"></div>
+      </div>
+    </div>
+  </div>
+  <div class="revive-overlay p1" id="revive1-overlay"><button class="revive-btn" id="revive1">ВОЗРОДИТЬ</button></div>
+  <div class="revive-overlay p2" id="revive2-overlay"><button class="revive-btn" id="revive2">ВОЗРОДИТЬ</button></div>
+  <div class="overlay" id="lobby">
+    <h1>RICK & MORTY</h1>
+    <h2>ДВЕ ПЛАНЕТЫ</h2>
+    <div class="controls-info">
+      <div class="p1-info"><b>◄ РИК</b> (слева): джойстик + JMP/FIRE/HIT/PORT</div>
+      <div class="p2-info"><b>МОРТИ ►</b> (справа): джойстик + JMP/FIRE/HIT/PORT</div>
+      <div class="warning">⚠ Если оба героя погибнут — игра окончена!</div>
+      <div class="warning">Возрождение доступно через 5 секунд после смерти</div>
+    </div>
+    <button class="big-btn" id="play-btn">ИГРАТЬ</button>
+  </div>
+  <div class="overlay" id="game-over">
+    <h1>ИГРА ОКОНЧЕНА</h1>
+    <div class="final">Убито врагов: <span id="final-score">0</span></div>
+    <div class="msg">Оба героя пали. Мультивселенная захвачена злыми клонами...</div>
+    <button id="lobby-btn">В ЛОББИ</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.2/nipplejs.min.js"></script>
+<script>
+(function(){
+'use strict';
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const hp1Fill = document.getElementById('hp1-fill');
+const hp2Fill = document.getElementById('hp2-fill');
+const scoreEl = document.getElementById('score');
+const p1Name = document.getElementById('p1-name');
+const p2Name = document.getElementById('p2-name');
+const p1Hud = document.getElementById('p1-hud');
+const p2Hud = document.getElementById('p2-hud');
+const revive1Overlay = document.getElementById('revive1-overlay');
+const revive2Overlay = document.getElementById('revive2-overlay');
+const revive1Btn = document.getElementById('revive1');
+const revive2Btn = document.getElementById('revive2');
+const lobbyEl = document.getElementById('lobby');
+const gameOverEl = document.getElementById('game-over');
+const finalScoreEl = document.getElementById('final-score');
+const playBtn = document.getElementById('play-btn');
+const lobbyBtn = document.getElementById('lobby-btn');
+
+let DESIGN_W = 900, DESIGN_H = 600, viewScale = 1;
+
+const state = {
+  gameStatus: 'lobby',
+  players: [], aliens: [], projectiles: [], enemyProjectiles: [],
+  portalEffects: [], announcements: [], score: 0,
+  groundY: 0, gravity: 0.6, dividerX: 0, stars: [],
+  spawnTimerLeft: 0, spawnTimerRight: 0, spawnInterval: 110,
+  rickPrimeSpawned: false, evilMortySpawned: false,
+  screenShake: 0
+};
+
+const REVIVE_COOLDOWN_FRAMES = 300;
+const PORTAL_COOLDOWN_FRAMES = 720;
+
+const RICK_PALETTES = {
+  basic:{ coat:'#f0f0f0', coatShadow:'#d8d8d8', lapel:'#ffffff', shirt:'#5cb8e0', hair:'#33aaff', hairDark:'#2299ee', hairLight:'#66ccff', skin:'#f0c8a0', skinShadow:'#d8b090', pants:'#6b4e1f', shoe:'#2a1a0a', shoeLight:'#4a3a1a', brow:'#5a3a1a', mouth:'#5a1a1a', shotColor:'#66ff66' },
+  fast:{ coat:'#f0e0e0', coatShadow:'#d8c0c0', lapel:'#ffffff', shirt:'#cc3333', hair:'#ff5555', hairDark:'#cc2222', hairLight:'#ff8888', skin:'#f0c8a0', skinShadow:'#d8b090', pants:'#4a2a0a', shoe:'#1a0a0a', shoeLight:'#3a2a1a', brow:'#3a1a1a', mouth:'#5a1a1a', shotColor:'#ff5555' },
+  ranged:{ coat:'#2a1a3a', coatShadow:'#1a0a2a', lapel:'#4a3a5a', shirt:'#aa66ff', hair:'#8855dd', hairDark:'#6633bb', hairLight:'#aa77ee', skin:'#d8c0a0', skinShadow:'#b8a080', pants:'#1a1a2a', shoe:'#0a0a1a', shoeLight:'#2a2a3a', brow:'#1a0a2a', mouth:'#2a0a1a', shotColor:'#bb55ee' }
+};
+const MORTY_PALETTES = {
+  basic:{ shirt:'#ffdd00', shirtShadow:'#e6c700', collar:'#fff', pants:'#3366cc', shoe:'#777', shoeLight:'#999', hair:'#8B4513', hairDark:'#5a2a0a', skin:'#f0c8a0', skinShadow:'#d8b090', mouth:'#5a1a1a', shotColor:'#ffff44' },
+  fast:{ shirt:'#4488ff', shirtShadow:'#2266dd', collar:'#fff', pants:'#222', shoe:'#333', shoeLight:'#555', hair:'#5a2a0a', hairDark:'#3a1a0a', skin:'#f0c8a0', skinShadow:'#d8b090', mouth:'#5a1a1a', shotColor:'#4488ff' },
+  ranged:{ shirt:'#9933ff', shirtShadow:'#7722cc', collar:'#fff', pants:'#333', shoe:'#222', shoeLight:'#444', hair:'#1a0f05', hairDark:'#000', skin:'#e8d0b0', skinShadow:'#c8b090', mouth:'#1a0000', shotColor:'#bb55ee' }
+};
+
+function resizeCanvas() {
+  const rect = document.getElementById('game-container').getBoundingClientRect();
+  canvas.width = rect.width; canvas.height = rect.height;
+  const minDim = Math.min(canvas.width, canvas.height);
+  viewScale = Math.max(0.4, minDim / 550);
+  DESIGN_W = canvas.width / viewScale;
+  DESIGN_H = canvas.height / viewScale;
+  const controlsDesign = 145 / viewScale;
+  state.groundY = Math.min(DESIGN_H - controlsDesign - 10, DESIGN_H * 0.88);
+  state.dividerX = DESIGN_W / 2;
+  if (state.players.length) {
+    state.players[0].spawnX = 30;
+    state.players[1].spawnX = DESIGN_W - 100;
+    for (const p of state.players) {
+      p.y = state.groundY - p.height;
+      if (p.alive) {
+        if (p.zone === 'left') {
+          if (p.x + p.width > state.dividerX - 10) p.x = state.dividerX - 10 - p.width;
+          if (p.x < 10) p.x = 10;
+        } else {
+          if (p.x < state.dividerX + 10) p.x = state.dividerX + 10;
+          if (p.x + p.width > DESIGN_W - 10) p.x = DESIGN_W - 10 - p.width;
+        }
+      }
+    }
+  }
+  state.stars = [];
+  for (let i = 0; i < 80; i++) {
+    state.stars.push({ x: Math.random() * DESIGN_W, y: Math.random() * DESIGN_H * 0.7, size: Math.random() * 2 + 1, speed: Math.random() * 0.4 + 0.1, layer: Math.random() < 0.5 ? 1 : 2 });
+  }
+}
+window.addEventListener('resize', resizeCanvas);
+window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 300));
+
+function createPlayerInput() {
+  return { left:false, right:false, joystickX:0, attackHeld:false, jumpPressed:false, meleePressed:false, portalPressed:false };
+}
+
+function createRick() {
+  return {
+    name:'Rick', type:'rick', zone:'left',
+    x:30, y:0, width:40, height:60, spawnX:30,
+    vx:0, vy:0, speed:4, jumpPower:-13,
+    health:100, maxHealth:100, facing:1, onGround:false,
+    shootCooldown:0, shootCooldownMax:14,
+    meleeCooldown:0, meleeCooldownMax:40, meleeActive:false, meleeTimer:0,
+    portalCooldown:0, knockbackVx:0, knockbackTimer:0,
+    attacking:false, attackTimer:0,
+    invulnerable:false, invulnerableTimer:0,
+    walkTimer:0, alive:true, reviveCooldown:0, shotColor:'#66ff66',
+    input: createPlayerInput()
+  };
+}
+function createMorty() {
+  return {
+    name:'Morty', type:'morty', zone:'right',
+    x:100, y:0, width:36, height:54, spawnX:100,
+    vx:0, vy:0, speed:4.3, jumpPower:-12,
+    health:85, maxHealth:85, facing:1, onGround:false,
+    shootCooldown:0, shootCooldownMax:16,
+    meleeCooldown:0, meleeCooldownMax:45, meleeActive:false, meleeTimer:0,
+    portalCooldown:0, knockbackVx:0, knockbackTimer:0,
+    attacking:false, attackTimer:0,
+    invulnerable:false, invulnerableTimer:0,
+    walkTimer:0, alive:true, reviveCooldown:0, shotColor:'#ffff44',
+    input: createPlayerInput()
+  };
+}
+
+let joy1 = null, joy2 = null;
+function setupJoysticks() {
+  if (typeof nipplejs === 'undefined') return;
+  try { if (joy1) joy1.destroy(); if (joy2) joy2.destroy(); } catch(e) {}
+  const size = window.innerWidth >= 700 ? 115 : (window.innerWidth >= 500 ? 90 : 78);
+  joy1 = nipplejs.create({ zone: document.getElementById('joy1-zone'), mode:'static', position:{ left:'50%', top:'50%' }, color:'#33aaff', size:size, restJoystick:true, restOpacity:0.4 });
+  joy1.on('move', (evt, data) => { if (data && data.vector && state.players[0]) state.players[0].input.joystickX = data.vector.x; });
+  joy1.on('end', () => { if (state.players[0]) state.players[0].input.joystickX = 0; });
+  joy2 = nipplejs.create({ zone: document.getElementById('joy2-zone'), mode:'static', position:{ left:'50%', top:'50%' }, color:'#ffcc00', size:size, restJoystick:true, restOpacity:0.4 });
+  joy2.on('move', (evt, data) => { if (data && data.vector && state.players[1]) state.players[1].input.joystickX = data.vector.x; });
+  joy2.on('end', () => { if (state.players[1]) state.players[1].input.joystickX = 0; });
+}
+
+function bindButton(id, playerIdx, action) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const clone = el.cloneNode(true);
+  el.parentNode.replaceChild(clone, el);
+  const press = (e) => {
+    e.preventDefault();
+    const p = state.players[playerIdx];
+    if (!p || !p.alive) return;
+    if (action === 'attack') p.input.attackHeld = true;
+    else if (action === 'jump') p.input.jumpPressed = true;
+    else if (action === 'melee') p.input.meleePressed = true;
+    else if (action === 'portal') p.input.portalPressed = true;
+  };
+  const release = (e) => {
+    if (e) e.preventDefault();
+    const p = state.players[playerIdx];
+    if (!p) return;
+    if (action === 'attack') p.input.attackHeld = false;
+  };
+  clone.addEventListener('pointerdown', press);
+  clone.addEventListener('pointerup', release);
+  clone.addEventListener('pointercancel', release);
+  clone.addEventListener('pointerleave', release);
+}
+
+window.addEventListener('keydown', (e) => {
+  if (state.gameStatus !== 'playing' || !state.players.length) return;
+  const p0 = state.players[0], p1 = state.players[1];
+  if (!p0 || !p1) return;
+  if (e.key === 'a' || e.key === 'A') p0.input.left = true;
+  if (e.key === 'd' || e.key === 'D') p0.input.right = true;
+  if (e.key === 'w' || e.key === 'W') p0.input.jumpPressed = true;
+  if (e.key === 'f' || e.key === 'F') p0.input.attackHeld = true;
+  if (e.key === 'g' || e.key === 'G') p0.input.meleePressed = true;
+  if (e.key === 'r' || e.key === 'R') p0.input.portalPressed = true;
+  if (e.key === 'ArrowLeft') { p1.input.left = true; e.preventDefault(); }
+  if (e.key === 'ArrowRight') { p1.input.right = true; e.preventDefault(); }
+  if (e.key === 'ArrowUp') { p1.input.jumpPressed = true; e.preventDefault(); }
+  if (e.key === 'Enter') { p1.input.attackHeld = true; e.preventDefault(); }
+  if (e.key === 'Shift') { p1.input.meleePressed = true; e.preventDefault(); }
+  if (e.key === 'Control') { p1.input.portalPressed = true; e.preventDefault(); }
+});
+window.addEventListener('keyup', (e) => {
+  if (!state.players.length) return;
+  const p0 = state.players[0], p1 = state.players[1];
+  if (!p0 || !p1) return;
+  if (e.key === 'a' || e.key === 'A') p0.input.left = false;
+  if (e.key === 'd' || e.key === 'D') p0.input.right = false;
+  if (e.key === 'f' || e.key === 'F') p0.input.attackHeld = false;
+  if (e.key === 'ArrowLeft') p1.input.left = false;
+  if (e.key === 'ArrowRight') p1.input.right = false;
+  if (e.key === 'Enter') p1.input.attackHeld = false;
+});
+
+function rectsIntersect(r1, r2) {
+  return !(r2.x > r1.x + r1.w || r2.x + r2.w < r1.x || r2.y > r1.y + r1.h || r2.y + r2.h < r1.y);
+}
+function circleRectIntersect(cx, cy, cr, rx, ry, rw, rh) {
+  const nx = Math.max(rx, Math.min(cx, rx + rw));
+  const ny = Math.max(ry, Math.min(cy, ry + rh));
+  const dx = cx - nx, dy = cy - ny;
+  return (dx*dx + dy*dy) < cr*cr;
+}
+
+// === Безопасная позиция на спавне ===
+function getSafeSpawnX(p) {
+  if (p.zone === 'left') {
+    return Math.max(10, Math.min(30, state.dividerX - 15 - p.width));
+  } else {
+    return Math.max(state.dividerX + 15, Math.min(DESIGN_W - 100, DESIGN_W - 15 - p.width));
+  }
+}
+
+function placePlayerAtSpawn(p) {
+  const sx = getSafeSpawnX(p);
+  p.x = sx;
+  p.y = state.groundY - p.height;
+  p.vx = 0;
+  p.vy = 0;
+  p.onGround = true;
+  p.knockbackTimer = 0;
+  p.knockbackVx = 0;
+  p.meleeActive = false;
+  p.meleeTimer = 0;
+  p.attacking = false;
+  p.attackTimer = 0;
+}
+
+function drawRickBody(px, py, w, h, walkTimer, moving, attacking, attackTimer, meleeActive, meleeTimer, pal) {
+  const lp = moving ? Math.sin(walkTimer * 0.4) * 3 : 0;
+  ctx.fillStyle = pal.pants; ctx.fillRect(px+10, py+44-lp, 8, 12); ctx.fillRect(px+22, py+44+lp, 8, 12);
+  ctx.fillStyle = pal.shoe; ctx.fillRect(px+8, py+54-lp, 12, 6); ctx.fillRect(px+20, py+54+lp, 12, 6);
+  ctx.fillStyle = pal.shoeLight; ctx.fillRect(px+8, py+54-lp, 12, 2); ctx.fillRect(px+20, py+54+lp, 12, 2);
+  ctx.fillStyle = pal.coat; ctx.fillRect(px+8, py+22, 24, 24);
+  ctx.fillStyle = pal.coatShadow; ctx.fillRect(px+8, py+40, 24, 6);
+  ctx.fillStyle = pal.lapel; ctx.fillRect(px+8, py+22, 6, 10); ctx.fillRect(px+26, py+22, 6, 10);
+  ctx.fillStyle = pal.shirt; ctx.fillRect(px+16, py+24, 8, 16);
+  ctx.fillStyle = pal.coat;
+  if (meleeActive && meleeTimer > 3) {
+    ctx.fillRect(px+30, py+26, 16, 8);
+    ctx.fillStyle = pal.skin; ctx.fillRect(px+44, py+24, 8, 12);
+  } else if (attacking && attackTimer > 4) {
+    ctx.fillRect(px+30, py+28, 14, 6);
+    ctx.fillStyle = pal.skin; ctx.fillRect(px+42, py+28, 5, 6);
+    ctx.fillStyle = pal.shotColor; ctx.fillRect(px+44, py+25, 10, 12);
+  } else {
+    ctx.fillRect(px+4, py+26, 6, 16); ctx.fillRect(px+30, py+26, 6, 16);
+    ctx.fillStyle = pal.skin; ctx.fillRect(px+4, py+40, 6, 5); ctx.fillRect(px+30, py+40, 6, 5);
+  }
+  ctx.fillStyle = pal.skinShadow; ctx.fillRect(px+16, py+20, 8, 4);
+  ctx.fillStyle = pal.skin; ctx.fillRect(px+10, py+6, 20, 18);
+  ctx.fillStyle = pal.skinShadow; ctx.fillRect(px+10, py+20, 20, 4);
+  ctx.fillStyle = pal.hair; ctx.fillRect(px+8, py+2, 24, 8);
+  ctx.fillStyle = pal.hairDark; ctx.fillRect(px+8, py+8, 24, 2);
+  ctx.fillStyle = pal.hair;
+  ctx.fillRect(px+6, py+4, 4, 6); ctx.fillRect(px+12, py-6, 4, 12); ctx.fillRect(px+18, py-8, 4, 14); ctx.fillRect(px+24, py-6, 4, 12); ctx.fillRect(px+30, py+2, 4, 8);
+  ctx.fillStyle = pal.hairLight; ctx.fillRect(px+14, py-4, 2, 6); ctx.fillRect(px+22, py-4, 2, 6);
+  ctx.fillStyle = pal.brow; ctx.fillRect(px+11, py+12, 18, 3);
+  ctx.fillStyle = '#fff'; ctx.fillRect(px+12, py+15, 6, 5); ctx.fillRect(px+22, py+15, 6, 5);
+  ctx.fillStyle = '#000'; ctx.fillRect(px+14, py+16, 3, 3); ctx.fillRect(px+24, py+16, 3, 3);
+  ctx.fillStyle = pal.mouth; ctx.fillRect(px+15, py+21, 10, 2);
+}
+
+function drawMortyBody(px, py, w, h, walkTimer, moving, attacking, attackTimer, meleeActive, meleeTimer, pal) {
+  const lp = moving ? Math.sin(walkTimer * 0.4) * 3 : 0;
+  ctx.fillStyle = pal.pants; ctx.fillRect(px+8, py+38-lp, 8, 14); ctx.fillRect(px+20, py+38+lp, 8, 14);
+  ctx.fillStyle = pal.shoe; ctx.fillRect(px+6, py+50-lp, 12, 5); ctx.fillRect(px+18, py+50+lp, 12, 5);
+  ctx.fillStyle = pal.shoeLight; ctx.fillRect(px+6, py+50-lp, 12, 2); ctx.fillRect(px+18, py+50+lp, 12, 2);
+  ctx.fillStyle = pal.shirt; ctx.fillRect(px+6, py+18, 24, 22);
+  ctx.fillStyle = pal.shirtShadow; ctx.fillRect(px+6, py+34, 24, 6);
+  ctx.fillStyle = pal.collar; ctx.fillRect(px+6, py+18, 24, 4);
+  ctx.fillStyle = pal.shirt;
+  if (meleeActive && meleeTimer > 3) {
+    ctx.fillRect(px+28, py+22, 14, 8);
+    ctx.fillStyle = pal.skin; ctx.fillRect(px+42, py+20, 8, 12);
+  } else if (attacking && attackTimer > 4) {
+    ctx.fillRect(px+28, py+24, 12, 6);
+    ctx.fillStyle = pal.skin; ctx.fillRect(px+38, py+24, 5, 6);
+    ctx.fillStyle = pal.shotColor; ctx.fillRect(px+40, py+22, 9, 11);
+  } else {
+    ctx.fillRect(px+2, py+22, 6, 14); ctx.fillRect(px+28, py+22, 6, 14);
+    ctx.fillStyle = pal.skin; ctx.fillRect(px+2, py+34, 6, 5); ctx.fillRect(px+28, py+34, 6, 5);
+  }
+  ctx.fillStyle = pal.skinShadow; ctx.fillRect(px+14, py+16, 8, 4);
+  ctx.fillStyle = pal.skin; ctx.fillRect(px+8, py+4, 20, 16);
+  ctx.fillStyle = pal.skinShadow; ctx.fillRect(px+8, py+16, 20, 4);
+  ctx.fillStyle = pal.hair; ctx.fillRect(px+6, py+0, 24, 8);
+  ctx.fillRect(px+4, py+2, 4, 6); ctx.fillRect(px+10, py-4, 4, 8); ctx.fillRect(px+16, py-6, 4, 10); ctx.fillRect(px+22, py-4, 4, 8); ctx.fillRect(px+28, py+2, 4, 6);
+  ctx.fillStyle = '#fff'; ctx.fillRect(px+10, py+8, 6, 7); ctx.fillRect(px+20, py+8, 6, 7);
+  ctx.fillStyle = '#000'; ctx.fillRect(px+12, py+10, 3, 4); ctx.fillRect(px+22, py+10, 3, 4);
+  ctx.fillStyle = pal.mouth; ctx.fillRect(px+13, py+18, 10, 2);
+}
+
+function drawRick(p) {
+  if (!p.alive) return;
+  const px=p.x, py=p.y, w=p.width, h=p.height;
+  const moving = Math.abs(p.vx)>0.5 && p.onGround;
+  if (moving) p.walkTimer++;
+  ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.ellipse(px+w/2, py+h+2, w/2.2, 5, 0, 0, Math.PI*2); ctx.fill();
+  ctx.save();
+  if (p.invulnerable && Math.floor(Date.now()/100)%2===0) ctx.globalAlpha=0.4;
+  if (p.facing<0) { ctx.translate(px+w, py); ctx.scale(-1,1); ctx.translate(-px,-py); }
+  drawRickBody(px, py, w, h, p.walkTimer, moving, p.attacking, p.attackTimer, p.meleeActive, p.meleeTimer, RICK_PALETTES.basic);
+  ctx.fillStyle='#7ec8e3'; ctx.fillRect(px+24, py+21, 2, 5);
+  ctx.restore();
+  if (p.meleeActive && p.meleeTimer > 3) {
+    const fx = p.facing > 0 ? px + w + 12 : px - 22;
+    ctx.fillStyle = 'rgba(255,180,0,0.9)'; ctx.beginPath(); ctx.arc(fx, py+26, 10 + Math.random()*6, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.beginPath(); ctx.arc(fx, py+26, 5, 0, Math.PI*2); ctx.fill();
+  } else if (p.attacking && p.attackTimer>10) {
+    const gx = p.facing>0 ? px+56 : px-16, gy = py+30;
+    ctx.fillStyle='rgba(102,255,102,0.8)'; ctx.beginPath(); ctx.arc(gx, gy, 8+Math.random()*4, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.beginPath(); ctx.arc(gx, gy, 4, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+function drawMorty(p) {
+  if (!p.alive) return;
+  const px=p.x, py=p.y, w=p.width, h=p.height;
+  const moving = Math.abs(p.vx)>0.5 && p.onGround;
+  if (moving) p.walkTimer++;
+  ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.ellipse(px+w/2, py+h+2, w/2.2, 5, 0, 0, Math.PI*2); ctx.fill();
+  ctx.save();
+  if (p.invulnerable && Math.floor(Date.now()/100)%2===0) ctx.globalAlpha=0.4;
+  if (p.facing<0) { ctx.translate(px+w, py); ctx.scale(-1,1); ctx.translate(-px,-py); }
+  drawMortyBody(px, py, w, h, p.walkTimer, moving, p.attacking, p.attackTimer, p.meleeActive, p.meleeTimer, MORTY_PALETTES.basic);
+  ctx.restore();
+  if (p.meleeActive && p.meleeTimer > 3) {
+    const fx = p.facing > 0 ? px + w + 12 : px - 22;
+    ctx.fillStyle = 'rgba(255,140,0,0.9)'; ctx.beginPath(); ctx.arc(fx, py+24, 10 + Math.random()*6, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.beginPath(); ctx.arc(fx, py+24, 5, 0, Math.PI*2); ctx.fill();
+  } else if (p.attacking && p.attackTimer>8) {
+    const gx = p.facing>0 ? px+50 : px-10, gy = py+27;
+    ctx.fillStyle='rgba(255,255,102,0.85)'; ctx.beginPath(); ctx.arc(gx, gy, 6+Math.random()*3, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.beginPath(); ctx.arc(gx, gy, 3, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+function drawRickPrime(a) {
+  const px=a.x, py=a.y, w=a.width, h=a.height;
+  const moving = Math.abs(a.vx)>0.5 && a.onGround;
+  if (moving) a.walkTimer++;
+  const lp = moving ? Math.sin(a.walkTimer*0.3)*4 : 0;
+  ctx.fillStyle='rgba(255,0,50,' + (0.12+Math.sin(Date.now()/200)*0.08) + ')';
+  ctx.beginPath(); ctx.arc(px+w/2, py+h/2, w*0.95, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.beginPath(); ctx.ellipse(px+w/2, py+h+2, w/2, 7, 0, 0, Math.PI*2); ctx.fill();
+  ctx.save();
+  if (a.hitFlash>0) ctx.globalAlpha=0.55;
+  if (a.facing<0) { ctx.translate(px+w, py); ctx.scale(-1,1); ctx.translate(-px,-py); }
+  ctx.fillStyle='#1a1a2a'; ctx.fillRect(px+14, py+h-32-lp, 12, 24); ctx.fillRect(px+w-26, py+h-32+lp, 12, 24);
+  ctx.fillStyle='#0a0a0a'; ctx.fillRect(px+12, py+h-10-lp, 16, 8); ctx.fillRect(px+w-28, py+h-10+lp, 16, 8);
+  ctx.fillStyle='#1a1a1a'; ctx.fillRect(px+12, py+32, w-24, 34);
+  ctx.fillStyle='#8a0000'; ctx.fillRect(px+24, py+36, w-48, 22);
+  ctx.fillStyle='#ff0000'; ctx.fillRect(px+w/2-2, py+42, 4, 4); ctx.fillRect(px+w/2-2, py+52, 4, 4);
+  ctx.fillStyle='#1a1a1a';
+  if (a.bossMeleeActive && a.bossMeleeTimer > 5) {
+    if (a.facing>0) {
+      ctx.fillRect(px+w-14, py+46, 30, 12);
+      ctx.fillStyle='#d0a080'; ctx.fillRect(px+w+14, py+42, 16, 20);
+      ctx.fillStyle='#b88860'; ctx.fillRect(px+w+28, py+44, 8, 8);
+      ctx.fillStyle='rgba(255,100,0,0.8)';
+      ctx.beginPath(); ctx.arc(px+w+40, py+56, 14, 0, Math.PI*2); ctx.fill();
+    } else {
+      ctx.fillRect(px-16, py+46, 30, 12);
+      ctx.fillStyle='#d0a080'; ctx.fillRect(px-30, py+42, 16, 20);
+      ctx.fillStyle='#b88860'; ctx.fillRect(px-36, py+44, 8, 8);
+      ctx.fillStyle='rgba(255,100,0,0.8)';
+      ctx.beginPath(); ctx.arc(px-40, py+56, 14, 0, Math.PI*2); ctx.fill();
+    }
+  } else if (a.attacking && a.attackTimer>15) {
+    if (a.facing>0) { ctx.fillRect(px+w-14, py+44, 24, 10); ctx.fillStyle='#d0a080'; ctx.fillRect(px+w+8, py+42, 10, 12); }
+    else { ctx.fillRect(px-10, py+44, 24, 10); ctx.fillStyle='#d0a080'; ctx.fillRect(px-18, py+42, 10, 12); }
+  } else {
+    ctx.fillRect(px+6, py+40, 10, 24); ctx.fillRect(px+w-16, py+40, 10, 24);
+    ctx.fillStyle='#d0a080'; ctx.fillRect(px+6, py+60, 10, 8); ctx.fillRect(px+w-16, py+60, 10, 8);
+  }
+  ctx.fillStyle='#d0a080'; ctx.fillRect(px+w/2-6, py+28, 12, 6);
+  ctx.fillStyle='#e8d0b0'; ctx.fillRect(px+14, py+8, w-28, 24);
+  ctx.fillStyle='#c0a080'; ctx.fillRect(px+14, py+28, w-28, 4);
+  ctx.fillStyle='#33aaff';
+  ctx.fillRect(px+10, py+2, w-20, 10); ctx.fillRect(px+6, py+6, 6, 8); ctx.fillRect(px+w-12, py+6, 6, 8);
+  ctx.fillRect(px+14, py-6, 6, 14); ctx.fillRect(px+24, py-10, 6, 18); ctx.fillRect(px+34, py-8, 6, 16); ctx.fillRect(px+44, py-4, 6, 12);
+  ctx.fillStyle='#ff2244'; ctx.fillRect(px+26, py-6, 3, 12); ctx.fillRect(px+38, py-4, 3, 10);
+  ctx.fillStyle='#1a0000'; ctx.fillRect(px+16, py+18, w-32, 4);
+  ctx.fillStyle='#ff0000'; ctx.fillRect(px+18, py+22, 8, 6); ctx.fillRect(px+w-26, py+22, 8, 6);
+  ctx.fillStyle='#ffaa00'; ctx.fillRect(px+20, py+24, 4, 3); ctx.fillRect(px+w-24, py+24, 4, 3);
+  ctx.fillStyle='#fff'; ctx.fillRect(px+21, py+24, 2, 2); ctx.fillRect(px+w-23, py+24, 2, 2);
+  ctx.fillStyle='#1a0000'; ctx.fillRect(px+22, py+30, w-44, 3);
+  ctx.fillStyle='#fff';
+  for (let i=0; i<4; i++) ctx.fillRect(px+24+i*5, py+30, 3, 3);
+  const gunX = a.facing>0 ? px+w+4 : px-20, gunY = py+42;
+  ctx.fillStyle='#2a0000'; ctx.fillRect(gunX, gunY, 16, 18);
+  ctx.fillStyle='#ff0000'; ctx.fillRect(gunX+3, gunY+3, 10, 12);
+  ctx.fillStyle='#ffaa88'; ctx.fillRect(gunX+5, gunY+5, 6, 8);
+  if (a.shootCooldown<30 && a.shootCooldown>0) {
+    ctx.fillStyle='rgba(255,0,0,' + (0.6+Math.sin(Date.now()/50)*0.3) + ')';
+    ctx.beginPath(); ctx.arc(a.facing>0 ? gunX+20 : gunX-4, gunY+9, 10, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+  if (a.health < a.maxHealth) {
+    ctx.fillStyle='#400'; ctx.fillRect(px, py-14, w, 7);
+    ctx.fillStyle='#ff2222'; ctx.fillRect(px, py-14, w*(a.health/a.maxHealth), 7);
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1; ctx.strokeRect(px, py-14, w, 7);
+  }
+}
+
+function drawEvilMorty(a) {
+  const px=a.x, py=a.y, w=a.width, h=a.height;
+  const moving = Math.abs(a.vx)>0.5 && a.onGround;
+  if (moving) a.walkTimer++;
+  const lp = moving ? Math.sin(a.walkTimer*0.35)*4 : 0;
+  ctx.fillStyle='rgba(255,80,0,' + (0.12+Math.sin(Date.now()/250)*0.08) + ')';
+  ctx.beginPath(); ctx.arc(px+w/2, py+h/2, w*0.9, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.beginPath(); ctx.ellipse(px+w/2, py+h+2, w/2, 6, 0, 0, Math.PI*2); ctx.fill();
+  ctx.save();
+  if (a.hitFlash>0) ctx.globalAlpha=0.55;
+  if (a.facing<0) { ctx.translate(px+w, py); ctx.scale(-1,1); ctx.translate(-px,-py); }
+  ctx.fillStyle='#3366cc';
+  ctx.fillRect(px+12, py+h-34-lp, 10, 24); ctx.fillRect(px+w-22, py+h-34+lp, 10, 24);
+  ctx.fillStyle='#2255aa'; ctx.fillRect(px+18, py+h-34-lp, 4, 24); ctx.fillRect(px+w-16, py+h-34+lp, 4, 24);
+  ctx.fillStyle='#ffffff'; ctx.fillRect(px+10, py+h-12-lp, 16, 10); ctx.fillRect(px+w-26, py+h-12+lp, 16, 10);
+  ctx.fillStyle='#cccccc'; ctx.fillRect(px+10, py+h-4-lp, 16, 3); ctx.fillRect(px+w-26, py+h-4+lp, 16, 3);
+  ctx.fillStyle='#ffdd00'; ctx.fillRect(px+10, py+26, w-20, 34);
+  ctx.fillStyle='#e6c700'; ctx.fillRect(px+10, py+50, w-20, 10);
+  ctx.fillStyle='#fff'; ctx.fillRect(px+10, py+26, w-20, 5);
+  ctx.fillStyle='#ffdd00';
+  if (a.handAttackActive) {
+    const phase = 45 - a.handAttackTimer;
+    if (phase >= 0 && phase < 15) {
+      const windUp = phase / 15; const armBack = windUp * 25;
+      ctx.fillRect(a.facing > 0 ? px + w - 15 + armBack : px - 5 - armBack, py + 34, 20, 10);
+      ctx.fillStyle='#f0c8a0'; ctx.fillRect(a.facing > 0 ? px + w - 5 + armBack : px - 15 - armBack, py + 32, 10, 14);
+    } else if (phase >= 15 && phase < 30) {
+      const strike = (phase - 15) / 15;
+      const armLength = 40 + strike * 170;
+      const armY = py + 34;
+      const startX = a.facing > 0 ? px + w - 5 : px + 5;
+      const sleeveLen = Math.min(armLength, 45);
+      ctx.fillStyle='#ffdd00';
+      ctx.fillRect(a.facing > 0 ? startX : startX - sleeveLen, armY, sleeveLen, 12);
+      ctx.fillStyle='#f0c8a0';
+      const skinStart = a.facing > 0 ? startX + sleeveLen : startX - sleeveLen;
+      const skinLen = Math.max(0, armLength - sleeveLen);
+      ctx.fillRect(a.facing > 0 ? skinStart : skinStart - skinLen, armY + 2, skinLen, 8);
+      const fistX = a.facing > 0 ? startX + armLength : startX - armLength;
+      ctx.fillStyle='#f0c8a0'; ctx.beginPath(); ctx.arc(fistX, armY + 6, 12, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle='rgba(255,180,80,0.7)'; ctx.lineWidth=3;
+      for (let i = 1; i <= 3; i++) {
+        ctx.beginPath();
+        if (a.facing > 0) { ctx.moveTo(startX - i*15, armY + 6 - i*3); ctx.lineTo(startX - i*15, armY + 6 + i*3); }
+        else { ctx.moveTo(startX + i*15, armY + 6 - i*3); ctx.lineTo(startX + i*15, armY + 6 + i*3); }
+        ctx.stroke();
+      }
+    } else {
+      ctx.fillRect(a.facing > 0 ? px + w - 15 : px - 5, py + 34, 20, 10);
+      ctx.fillStyle='#f0c8a0'; ctx.fillRect(a.facing > 0 ? px + w - 5 : px - 15, py + 34, 10, 10);
+    }
+  } else if (a.bossMeleeActive && a.bossMeleeTimer > 4) {
+    if (a.facing > 0) {
+      ctx.fillRect(px + w - 10, py + 30, 22, 10);
+      ctx.fillStyle = '#f0c8a0'; ctx.fillRect(px + w + 12, py + 28, 14, 14);
+      ctx.fillStyle = 'rgba(255,100,0,0.8)'; ctx.beginPath(); ctx.arc(px + w + 28, py + 36, 12, 0, Math.PI*2); ctx.fill();
+    } else {
+      ctx.fillRect(px - 12, py + 30, 22, 10);
+      ctx.fillStyle = '#f0c8a0'; ctx.fillRect(px - 26, py + 28, 14, 14);
+      ctx.fillStyle = 'rgba(255,100,0,0.8)'; ctx.beginPath(); ctx.arc(px - 32, py + 36, 12, 0, Math.PI*2); ctx.fill();
+    }
+  } else {
+    ctx.fillRect(px+6, py+30, 8, 20); ctx.fillRect(px+w-14, py+30, 8, 20);
+    ctx.fillStyle='#f0c8a0'; ctx.fillRect(px+6, py+46, 8, 8); ctx.fillRect(px+w-14, py+46, 8, 8);
+  }
+  ctx.fillStyle='#d8b090'; ctx.fillRect(px+w/2-6, py+22, 12, 6);
+  ctx.fillStyle='#f0c8a0'; ctx.fillRect(px+10, py+4, w-20, 22);
+  ctx.fillStyle='#d8b090'; ctx.fillRect(px+10, py+22, w-20, 4);
+  ctx.fillStyle='#8B4513';
+  ctx.fillRect(px+8, py-2, w-16, 10); ctx.fillRect(px+4, py+2, 6, 8); ctx.fillRect(px+w-10, py+2, 6, 8);
+  ctx.fillRect(px+12, py-8, 6, 12); ctx.fillRect(px+22, py-10, 6, 14); ctx.fillRect(px+32, py-8, 6, 12);
+  ctx.fillStyle='#a0522d'; ctx.fillRect(px+14, py-4, 3, 6); ctx.fillRect(px+26, py-4, 3, 6);
+  ctx.fillStyle='#fff'; ctx.fillRect(px+10, py+10, 8, 8);
+  ctx.fillStyle='#000'; ctx.fillRect(px+12, py+12, 4, 5);
+  ctx.fillStyle='#1a1a1a'; ctx.fillRect(px+w/2+2, py+8, 12, 12);
+  ctx.strokeStyle='#000'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(px+10, py+10); ctx.lineTo(px+w-6, py+6); ctx.stroke();
+  ctx.fillStyle='#333'; ctx.fillRect(px+w/2+4, py+10, 3, 3);
+  ctx.strokeStyle='#5a1a1a'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(px+14, py+22); ctx.lineTo(px+w/2, py+26); ctx.lineTo(px+w-14, py+20); ctx.stroke();
+  ctx.fillStyle='#fff'; ctx.fillRect(px+16, py+22, 4, 3); ctx.fillRect(px+w-20, py+21, 4, 3);
+  ctx.restore();
+  if (a.health < a.maxHealth) {
+    ctx.fillStyle='#400'; ctx.fillRect(px, py-14, w, 7);
+    ctx.fillStyle='#ff4444'; ctx.fillRect(px, py-14, w*(a.health/a.maxHealth), 7);
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1; ctx.strokeRect(px, py-14, w, 7);
+  }
+}
+
+class Alien {
+  constructor(x, y, type, zone) {
+    this.type = type; this.zone = zone;
+    this.isRick = (zone === 'left');
+    this.x = x; this.y = y; this.vx = 0; this.vy = 0;
+    this.onGround = false;
+    this.facing = zone === 'left' ? 1 : -1;
+    this.attacking = false; this.attackTimer = 0; this.attackCooldown = 0;
+    this.hitFlash = 0; this.walkTimer = Math.random() * 100;
+    this.ranged = false; this.shootCooldown = 0; this.isBoss = false;
+    this.meleeActive = false; this.meleeTimer = 0;
+    this.bossMeleeActive = false; this.bossMeleeTimer = 0; this.bossMeleeCooldown = 0;
+    this.handAttackActive = false; this.handAttackTimer = 0; this.handAttackHit = false;
+    if (type === 'rickprime') {
+      this.width = 56; this.height = 84; this.maxHealth = 500; this.speed = 1.2;
+      this.isBoss = true; this.ranged = true; this.shootCooldown = 100; this.shotColor = '#ff2222';
+    } else if (type === 'evilmorty') {
+      this.width = 46; this.height = 70; this.maxHealth = 400; this.speed = 1.8;
+      this.isBoss = true; this.shootCooldown = 100; this.shotColor = '#ff8800';
+    } else if (type === 'basic') {
+      this.width = 40; this.height = 60; this.maxHealth = 30; this.speed = 1.5;
+      this.palette = this.isRick ? RICK_PALETTES.basic : MORTY_PALETTES.basic; this.shotColor = this.palette.shotColor;
+    } else if (type === 'fast') {
+      this.width = 40; this.height = 60; this.maxHealth = 35; this.speed = 2.3;
+      this.palette = this.isRick ? RICK_PALETTES.fast : MORTY_PALETTES.fast; this.shotColor = this.palette.shotColor;
+    } else if (type === 'ranged') {
+      this.width = 40; this.height = 60; this.maxHealth = 25; this.speed = 1.7;
+      this.ranged = true; this.shootCooldown = 60 + Math.random() * 60;
+      this.palette = this.isRick ? RICK_PALETTES.ranged : MORTY_PALETTES.ranged; this.shotColor = this.palette.shotColor;
+    }
+    this.health = this.maxHealth;
+  }
+  getTarget() {
+    let best = null, bd = Infinity;
+    for (const p of state.players) {
+      if (!p.alive) continue;
+      const dx = (p.x + p.width/2) - (this.x + this.width/2);
+      const dy = (p.y + p.height/2) - (this.y + this.height/2);
+      let d = dx*dx + dy*dy;
+      if (p.zone === this.zone) d *= 0.5;
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
+  }
+  update() {
+    if (this.hitFlash > 0) this.hitFlash--;
+    this.walkTimer++;
+    if (this.meleeActive) { this.meleeTimer--; if (this.meleeTimer <= 0) this.meleeActive = false; }
+    if (this.bossMeleeActive) { this.bossMeleeTimer--; if (this.bossMeleeTimer <= 0) this.bossMeleeActive = false; }
+    if (this.bossMeleeCooldown > 0) this.bossMeleeCooldown--;
+    if (this.type === 'evilmorty' && this.handAttackActive) {
+      this.handAttackTimer--;
+      const phase = 45 - this.handAttackTimer;
+      if (phase >= 15 && phase <= 30 && !this.handAttackHit) {
+        const armLength = 40 + ((phase - 15) / 15) * 170;
+        const armY = this.y + 34;
+        const startX = this.facing > 0 ? this.x + this.width - 5 : this.x + 5;
+        const fistX = this.facing > 0 ? startX + armLength : startX - armLength;
+        for (const p of state.players) {
+          if (!p.alive || p.invulnerable) continue;
+          if (p.zone !== this.zone) continue;
+          const fistBox = { x: fistX - 14, y: armY - 8, w: 28, h: 28 };
+          if (rectsIntersect(fistBox, { x: p.x, y: p.y, w: p.width, h: p.height })) {
+            p.health -= 20;
+            p.invulnerable = true; p.invulnerableTimer = 60;
+            p.knockbackVx = this.facing * 28;
+            p.knockbackTimer = 18;
+            p.vy = -8;
+            p.onGround = false;
+            state.screenShake = 20;
+            this.handAttackHit = true;
+            state.announcements.push({ text: 'ОТБРОШЕН!', life: 60, color: '#ff8800' });
+          }
+        }
+      }
+      if (this.handAttackTimer <= 0) { this.handAttackActive = false; this.shootCooldown = 180; }
+      this.vy += state.gravity; this.y += this.vy;
+      if (this.y + this.height >= state.groundY) { this.y = state.groundY - this.height; this.vy = 0; this.onGround = true; }
+      return;
+    }
+    const target = this.getTarget();
+    if (!target) return;
+    const dx = (target.x + target.width/2) - (this.x + this.width/2);
+    const dy = (target.y + target.height/2) - (this.y + this.height/2);
+    const dist = Math.abs(dx);
+    this.facing = dx > 0 ? 1 : -1;
+    if (this.type === 'rickprime') {
+      if (dist > 60) this.vx = Math.sign(dx) * this.speed; else this.vx = 0;
+      if (dist < 65 && this.bossMeleeCooldown <= 0 && !this.bossMeleeActive) {
+        this.bossMeleeActive = true; this.bossMeleeTimer = 20; this.bossMeleeCooldown = 90; this.vx = 0;
+        const hitBox = { x: this.facing > 0 ? this.x + this.width : this.x - 45, y: this.y + 20, w: 50, h: 50 };
+        for (const p of state.players) {
+          if (!p.alive || p.invulnerable) continue;
+          if (p.zone !== this.zone) continue;
+          if (rectsIntersect(hitBox, { x: p.x, y: p.y, w: p.width, h: p.height })) {
+            p.health -= 18; p.invulnerable = true; p.invulnerableTimer = 60;
+            p.knockbackVx = this.facing * 12; p.knockbackTimer = 10;
+            state.screenShake = 10;
+          }
+        }
+      }
+      if (this.shootCooldown > 0) this.shootCooldown--;
+      else if (dist > 100 && dist < 350 && Math.abs(dy) < 120 && !this.bossMeleeActive) {
+        this.shootTriple(target); this.shootCooldown = 180;
+      }
+    } else if (this.type === 'evilmorty') {
+      if (dist < 55) {
+        this.vx = 0;
+        if (this.bossMeleeCooldown <= 0 && !this.bossMeleeActive) {
+          this.bossMeleeActive = true; this.bossMeleeTimer = 18; this.bossMeleeCooldown = 100;
+          const hitBox = { x: this.facing > 0 ? this.x + this.width : this.x - 40, y: this.y + 20, w: 45, h: 40 };
+          for (const p of state.players) {
+            if (!p.alive || p.invulnerable) continue;
+            if (p.zone !== this.zone) continue;
+            if (rectsIntersect(hitBox, { x: p.x, y: p.y, w: p.width, h: p.height })) {
+              p.health -= 15; p.invulnerable = true; p.invulnerableTimer = 60;
+              p.knockbackVx = this.facing * 10; p.knockbackTimer = 8;
+              state.screenShake = 8;
+            }
+          }
+        }
+      } else if (dist > 90 && dist < 450) {
+        this.vx = 0;
+        if (this.shootCooldown <= 0 && !this.bossMeleeActive) {
+          this.handAttackActive = true; this.handAttackTimer = 45; this.handAttackHit = false;
+        }
+      } else {
+        this.vx = Math.sign(dx) * this.speed;
+      }
+    } else if (this.ranged) {
+      if (dist < 130) this.vx = -Math.sign(dx) * this.speed * 0.7;
+      else if (dist > 240) this.vx = Math.sign(dx) * this.speed;
+      else this.vx = 0;
+      if (this.shootCooldown > 0) this.shootCooldown--;
+      else if (dist < 380 && Math.abs(dy) < 120) {
+        this.shootAt(target, this.shotColor, 8, 7); this.shootCooldown = 90 + Math.random() * 50;
+        this.attacking = true; this.attackTimer = 15;
+      }
+    } else {
+      if (dist > 42) this.vx = Math.sign(dx) * this.speed;
+      else {
+        this.vx = 0;
+        if (this.attackCooldown <= 0 && !this.attacking) {
+          this.attacking = true; this.attackTimer = 28; this.attackCooldown = 55;
+          this.meleeActive = true; this.meleeTimer = 15;
+        }
+      }
+    }
+    if (this.attackCooldown > 0) this.attackCooldown--;
+    if (this.attacking) { this.attackTimer--; if (this.attackTimer <= 0) this.attacking = false; }
+    this.vy += state.gravity; this.y += this.vy;
+    if (this.y + this.height >= state.groundY) { this.y = state.groundY - this.height; this.vy = 0; this.onGround = true; }
+    this.x += this.vx;
+    if (this.zone === 'left') {
+      if (this.x < 0) this.x = 0;
+      if (this.x + this.width > state.dividerX - 4) this.x = state.dividerX - 4 - this.width;
+    } else {
+      if (this.x < state.dividerX + 4) this.x = state.dividerX + 4;
+      if (this.x + this.width > DESIGN_W) this.x = DESIGN_W - this.width;
+    }
+    if (!this.ranged && this.attacking && this.attackTimer > 14) {
+      const attackBox = { x: this.facing > 0 ? this.x + this.width : this.x - 25, y: this.y + 20, w: 28, h: 30 };
+      for (const p of state.players) {
+        if (!p.alive || p.invulnerable) continue;
+        if (p.zone !== this.zone) continue;
+        if (rectsIntersect(attackBox, { x: p.x, y: p.y, w: p.width, h: p.height })) {
+          p.health -= 10; p.invulnerable = true; p.invulnerableTimer = 60;
+          if (p.health < 0) p.health = 0;
+        }
+      }
+    }
+  }
+  shootAt(target, color, damage, radius) {
+    const sx = this.facing > 0 ? this.x + this.width : this.x;
+    const sy = this.y + this.height * 0.45;
+    const tx = target.x + target.width / 2;
+    const ty = target.y + target.height / 2;
+    const dx = tx - sx, dy = ty - sy;
+    const d = Math.sqrt(dx*dx + dy*dy) || 1;
+    const speed = 4.5;
+    state.enemyProjectiles.push({ x: sx, y: sy, vx: (dx/d) * speed, vy: (dy/d) * speed, radius: radius || 7, damage: damage || 8, life: 200, color: color || '#bb55ee', zone: this.zone });
+  }
+  shootTriple(target) {
+    const sx = this.facing > 0 ? this.x + this.width : this.x;
+    const sy = this.y + this.height * 0.5;
+    const tx = target.x + target.width / 2;
+    const ty = target.y + target.height / 2;
+    const baseAngle = Math.atan2(ty - sy, tx - sx);
+    const speed = 5;
+    for (let i = -1; i <= 1; i++) {
+      const angle = baseAngle + i * 0.2;
+      state.enemyProjectiles.push({ x: sx, y: sy, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, radius: 9, damage: 15, life: 220, color: '#ff2222', zone: this.zone });
+    }
+  }
+  draw() {
+    const px = this.x, py = this.y, w = this.width, h = this.height;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.ellipse(px + w/2, py + h + 2, w/2.2, 5, 0, 0, Math.PI*2); ctx.fill();
+    if (this.type === 'rickprime') { drawRickPrime(this); return; }
+    if (this.type === 'evilmorty') { drawEvilMorty(this); return; }
+    ctx.save();
+    if (this.hitFlash > 0) ctx.globalAlpha = 0.55;
+    if (this.facing < 0) { ctx.translate(px + w, py); ctx.scale(-1, 1); ctx.translate(-px, -py); }
+    const moving = Math.abs(this.vx) > 0.5 && this.onGround;
+    if (this.isRick) drawRickBody(px, py, w, h, this.walkTimer, moving, this.attacking, this.attackTimer, this.meleeActive, this.meleeTimer, this.palette);
+    else drawMortyBody(px, py, w, h, this.walkTimer, moving, this.attacking, this.attackTimer, this.meleeActive, this.meleeTimer, this.palette);
+    ctx.restore();
+    if (this.health < this.maxHealth) {
+      ctx.fillStyle = '#400'; ctx.fillRect(px, py - 10, w, 5);
+      const hpColor = this.type === 'fast' ? '#ff3333' : this.type === 'ranged' ? '#bb55ee' : '#33ff33';
+      ctx.fillStyle = hpColor;
+      ctx.fillRect(px, py - 10, w * (this.health / this.maxHealth), 5);
+    }
+  }
+}
+
+function spawnAlien(zone) {
+  const x = zone === 'left' ? -50 : DESIGN_W + 10;
+  const y = state.groundY - 60;
+  const r = Math.random();
+  const type = r < 0.5 ? 'basic' : (r < 0.8 ? 'fast' : 'ranged');
+  state.aliens.push(new Alien(x, y, type, zone));
+}
+function spawnBoss(type) {
+  if (type === 'rickprime' && !state.rickPrimeSpawned) {
+    state.rickPrimeSpawned = true;
+    state.aliens = state.aliens.filter(a => !(a.zone === 'left' && !a.isBoss));
+    state.aliens.push(new Alien(state.dividerX - 100, state.groundY - 84, 'rickprime', 'left'));
+    state.announcements.push({ text: 'РИК ПРАЙМ АТАКУЕТ!', life: 120, color: '#ff2222' });
+    state.screenShake = 25;
+  }
+  if (type === 'evilmorty' && !state.evilMortySpawned) {
+    state.evilMortySpawned = true;
+    state.aliens = state.aliens.filter(a => !(a.zone === 'right' && !a.isBoss));
+    state.aliens.push(new Alien(DESIGN_W - 80, state.groundY - 70, 'evilmorty', 'right'));
+    state.announcements.push({ text: 'ЗЛОЙ МОРТИ АТАКУЕТ!', life: 120, color: '#ff8800' });
+    state.screenShake = 25;
+  }
+}
+function damageAlien(a, dmg, fromX) {
+  a.health -= dmg; a.hitFlash = 12;
+  if (a.health <= 0) {
+    const idx = state.aliens.indexOf(a);
+    if (idx >= 0) state.aliens.splice(idx, 1);
+    state.score++;
+    if (a.isBoss) {
+      state.announcements.push({ text: 'БОСС ПОВЕРЖЕН!', life: 100, color: '#ffff00' });
+      state.screenShake = 20;
+    }
+    return true;
+  }
+  if (fromX !== undefined && !a.isBoss) {
+    const dir = a.x > fromX ? 1 : -1;
+    a.x += dir * 20;
+    if (a.zone === 'left') {
+      if (a.x < 0) a.x = 0;
+      if (a.x + a.width > state.dividerX - 4) a.x = state.dividerX - 4 - a.width;
+    } else {
+      if (a.x < state.dividerX + 4) a.x = state.dividerX + 4;
+      if (a.x + a.width > DESIGN_W) a.x = DESIGN_W - a.width;
+    }
+  }
+  return false;
+}
+
+function fireMelee(p) {
+  p.meleeActive = true; p.meleeTimer = 15; p.meleeCooldown = p.meleeCooldownMax;
+  const range = 55;
+  const hitBox = { x: p.facing > 0 ? p.x + p.width : p.x - range, y: p.y + 10, w: range, h: p.height - 10 };
+  const dmg = p.type === 'rick' ? 45 : 35;
+  for (let i = state.aliens.length - 1; i >= 0; i--) {
+    const a = state.aliens[i];
+    if (a.zone !== p.zone) continue;
+    if (rectsIntersect(hitBox, { x: a.x, y: a.y, w: a.width, h: a.height })) {
+      damageAlien(a, dmg, p.x + p.width/2);
+    }
+  }
+}
+
+// === ПОРТАЛ — БЕЗ УРОНА, ЧИСТЫЙ ТЕЛЕПОРТ ===
+function firePortal(p) {
+  if (!p || !p.alive) return;
+
+  // Эффект на старой позиции (только визуал)
+  const oldCx = p.x + p.width/2;
+  const oldCy = p.y + p.height/2;
+  state.portalEffects.push({ x: oldCx, y: oldCy, life: 40, maxLife: 40 });
+
+  // Безопасный телепорт на спавн (без урона по врагам)
+  placePlayerAtSpawn(p);
+
+  // Полное лечение и неуязвимость
+  p.health = p.maxHealth;
+  p.invulnerable = true; p.invulnerableTimer = 90;
+  p.portalCooldown = PORTAL_COOLDOWN_FRAMES;
+
+  // Эффект на новой позиции
+  state.portalEffects.push({ x: p.x + p.width/2, y: p.y + p.height/2, life: 40, maxLife: 40 });
+  state.screenShake = 15;
+}
+
+function updatePlayer(p) {
+  if (!p.alive) return;
+
+  // ⚠️ ЗАЩИТА ОТ NaN — если позиция сломалась, восстанавливаем
+  if (isNaN(p.x) || isNaN(p.y)) {
+    console.warn('Player position is NaN, recovering...');
+    placePlayerAtSpawn(p);
+  }
+  if (isNaN(p.health)) p.health = p.maxHealth;
+  if (isNaN(p.portalCooldown)) p.portalCooldown = 0;
+
+  if (p.invulnerable) { p.invulnerableTimer--; if (p.invulnerableTimer <= 0) p.invulnerable = false; }
+  if (p.shootCooldown > 0) p.shootCooldown--;
+  if (p.meleeCooldown > 0) p.meleeCooldown--;
+  if (p.portalCooldown > 0) p.portalCooldown--;
+  if (p.meleeActive) { p.meleeTimer--; if (p.meleeTimer <= 0) p.meleeActive = false; }
+
+  if (p.knockbackTimer > 0) {
+    p.knockbackTimer--;
+    p.x += p.knockbackVx;
+    p.knockbackVx *= 0.88;
+    p.vy += state.gravity; p.y += p.vy;
+    if (p.y + p.height >= state.groundY) { p.y = state.groundY - p.height; p.vy = 0; p.onGround = true; }
+    if (p.zone === 'left') {
+      if (p.x < 0) p.x = 0;
+      if (p.x + p.width > state.dividerX - 4) p.x = state.dividerX - 4 - p.width;
+    } else {
+      if (p.x < state.dividerX + 4) p.x = state.dividerX + 4;
+      if (p.x + p.width > DESIGN_W) p.x = DESIGN_W - p.width;
+    }
+    return;
+  }
+
+  if (p.input.portalPressed) {
+    p.input.portalPressed = false;
+    if (p.portalCooldown <= 0) firePortal(p);
+  }
+  if (p.input.meleePressed) {
+    p.input.meleePressed = false;
+    if (p.meleeCooldown <= 0 && !p.meleeActive) fireMelee(p);
+  }
+  if (p.input.jumpPressed) {
+    p.input.jumpPressed = false;
+    if (p.onGround) { p.vy = p.jumpPower; p.onGround = false; }
+  }
+
+  let moveX = 0;
+  if (p.input.left) moveX -= 1;
+  if (p.input.right) moveX += 1;
+  if (Math.abs(p.input.joystickX) > 0.2) moveX = p.input.joystickX;
+  if (moveX > 0.2) { p.vx = p.speed; p.facing = 1; }
+  else if (moveX < -0.2) { p.vx = -p.speed; p.facing = -1; }
+  else p.vx *= 0.65;
+
+  if (p.input.attackHeld && p.shootCooldown <= 0 && !p.meleeActive) {
+    p.attacking = true; p.attackTimer = 12; p.shootCooldown = p.shootCooldownMax;
+    const gunX = p.facing > 0 ? p.x + p.width - 2 : p.x - 6;
+    const gunY = p.y + 28;
+    const dmg = p.type === 'rick' ? 15 : 12;
+    state.projectiles.push({ x: gunX, y: gunY, vx: p.facing * 11, vy: 0, radius: 7, damage: dmg, life: 90, color: p.shotColor, zone: p.zone });
+  }
+  if (p.attacking) { p.attackTimer--; if (p.attackTimer <= 0) p.attacking = false; }
+
+  p.vy += state.gravity; p.y += p.vy;
+  if (p.y + p.height >= state.groundY) { p.y = state.groundY - p.height; p.vy = 0; p.onGround = true; }
+  else p.onGround = false;
+
+  p.x += p.vx;
+  if (p.zone === 'left') {
+    if (p.x < 0) p.x = 0;
+    if (p.x + p.width > state.dividerX - 4) p.x = state.dividerX - 4 - p.width;
+  } else {
+    if (p.x < state.dividerX + 4) p.x = state.dividerX + 4;
+    if (p.x + p.width > DESIGN_W) p.x = DESIGN_W - p.width;
+  }
+}
+
+function killPlayer(p) {
+  if (!p.alive) return;
+  p.alive = false; p.health = 0;
+  p.reviveCooldown = REVIVE_COOLDOWN_FRAMES;
+  state.portalEffects.push({ x: p.x + p.width/2, y: p.y + p.height/2, life: 40, maxLife: 40 });
+  p.input.left = false; p.input.right = false;
+  p.input.attackHeld = false;
+  p.input.jumpPressed = false; p.input.meleePressed = false; p.input.portalPressed = false;
+  p.input.joystickX = 0;
+  p.attacking = false; p.attackTimer = 0;
+  p.meleeActive = false; p.meleeTimer = 0;
+  p.knockbackTimer = 0; p.knockbackVx = 0;
+}
+
+function tryRevive(idx) {
+  const p = state.players[idx];
+  if (!p || p.alive) return;
+  if (p.reviveCooldown > 0) return;
+  if (!state.players[0].alive && !state.players[1].alive) return;
+  p.alive = true;
+  p.health = p.maxHealth;
+  placePlayerAtSpawn(p);
+  p.invulnerable = true; p.invulnerableTimer = 90;
+  p.reviveCooldown = 0;
+  p.input.left = false; p.input.right = false;
+  p.input.attackHeld = false;
+  p.input.jumpPressed = false; p.input.meleePressed = false; p.input.portalPressed = false;
+  p.input.joystickX = 0;
+  state.portalEffects.push({ x: p.x + p.width/2, y: p.y + p.height/2, life: 40, maxLife: 40 });
+  state.screenShake = 10;
+}
+
+function updateGame() {
+  if (state.gameStatus !== 'playing') return;
+  for (const p of state.players) {
+    updatePlayer(p);
+    if (!p.alive && p.reviveCooldown > 0) p.reviveCooldown--;
+  }
+
+  for (let i = state.projectiles.length - 1; i >= 0; i--) {
+    const proj = state.projectiles[i];
+    proj.x += proj.vx; proj.y += proj.vy; proj.life--;
+    if (proj.life <= 0 || proj.x < -30 || proj.x > DESIGN_W + 30) { state.projectiles.splice(i, 1); continue; }
+    for (let j = state.aliens.length - 1; j >= 0; j--) {
+      const a = state.aliens[j];
+      if (a.zone !== proj.zone) continue;
+      if (circleRectIntersect(proj.x, proj.y, proj.radius, a.x, a.y, a.width, a.height)) {
+        damageAlien(a, proj.damage);
+        state.projectiles.splice(i, 1);
+        break;
+      }
+    }
+  }
+
+  for (let i = state.enemyProjectiles.length - 1; i >= 0; i--) {
+    const proj = state.enemyProjectiles[i];
+    proj.x += proj.vx; proj.y += proj.vy; proj.life--;
+    if (proj.life <= 0 || proj.x < -30 || proj.x > DESIGN_W + 30 || proj.y > DESIGN_H + 30) { state.enemyProjectiles.splice(i, 1); continue; }
+    let hit = false;
+    for (const p of state.players) {
+      if (!p.alive || p.invulnerable) continue;
+      if (p.zone !== proj.zone) continue;
+      if (circleRectIntersect(proj.x, proj.y, proj.radius, p.x, p.y, p.width, p.height)) {
+        p.health -= proj.damage; p.invulnerable = true; p.invulnerableTimer = 60;
+        if (p.health < 0) p.health = 0;
+        hit = true; break;
+      }
+    }
+    if (hit) state.enemyProjectiles.splice(i, 1);
+  }
+
+  for (let i = state.aliens.length - 1; i >= 0; i--) {
+    const a = state.aliens[i];
+    a.update();
+    if (a.x < -200 || a.x > DESIGN_W + 200) state.aliens.splice(i, 1);
+  }
+
+  const bossLeftActive = state.aliens.some(a => a.isBoss && a.zone === 'left');
+  const bossRightActive = state.aliens.some(a => a.isBoss && a.zone === 'right');
+  const interval = Math.max(40, state.spawnInterval - state.score * 2);
+  state.spawnTimerLeft++; state.spawnTimerRight++;
+  const leftAliens = state.aliens.filter(a => a.zone === 'left' && !a.isBoss).length;
+  const rightAliens = state.aliens.filter(a => a.zone === 'right' && !a.isBoss).length;
+  if (state.spawnTimerLeft >= interval && leftAliens < 5 && !bossLeftActive) { spawnAlien('left'); state.spawnTimerLeft = 0; }
+  if (state.spawnTimerRight >= interval && rightAliens < 5 && !bossRightActive) { spawnAlien('right'); state.spawnTimerRight = 0; }
+
+  if (state.score >= 8 && !state.rickPrimeSpawned) spawnBoss('rickprime');
+  if (state.score >= 18 && !state.evilMortySpawned) spawnBoss('evilmorty');
+
+  for (let i = state.announcements.length - 1; i >= 0; i--) {
+    state.announcements[i].life--;
+    if (state.announcements[i].life <= 0) state.announcements.splice(i, 1);
+  }
+  for (let i = state.portalEffects.length - 1; i >= 0; i--) {
+    state.portalEffects[i].life--;
+    if (state.portalEffects[i].life <= 0) state.portalEffects.splice(i, 1);
+  }
+  if (state.screenShake > 0) state.screenShake *= 0.9;
+
+  for (const p of state.players) {
+    if (p.health <= 0 && p.alive) killPlayer(p);
+  }
+
+  if (!state.players[0].alive && !state.players[1].alive) {
+    state.gameStatus = 'gameover';
+    gameOverEl.style.display = 'flex';
+    finalScoreEl.textContent = state.score;
+  }
+
+  updateHUD();
+}
+
+function updateHUD() {
+  for (let i = 0; i < 2; i++) {
+    const p = state.players[i];
+    const fill = i === 0 ? hp1Fill : hp2Fill;
+    const hud = i === 0 ? p1Hud : p2Hud;
+    const nameEl = i === 0 ? p1Name : p2Name;
+    const controlsEl = document.getElementById('p' + (i+1) + '-controls');
+    const reviveEl = i === 0 ? revive1Overlay : revive2Overlay;
+    const reviveBtn = i === 0 ? revive1Btn : revive2Btn;
+    const portalBtn = document.getElementById('portal' + (i+1));
+    const meleeBtn = document.getElementById('melee' + (i+1));
+    if (p.alive) {
+      const pct = (p.health / p.maxHealth) * 100;
+      fill.style.width = pct + '%';
+      fill.className = 'hp-fill' + (pct < 30 ? ' low' : '');
+      hud.classList.remove('dead');
+      nameEl.textContent = i === 0 ? '◄ RICK · ПЛАНЕТА РИКОВ' : 'ПЛАНЕТА МОРТИ · MORTY ►';
+      controlsEl.classList.remove('dead');
+      reviveEl.classList.remove('active');
+    } else {
+      fill.style.width = '0%';
+      hud.classList.add('dead');
+      nameEl.textContent = i === 0 ? '◄ RICK (ПАЛ)' : '(ПАЛ) MORTY ►';
+      controlsEl.classList.add('dead');
+      reviveEl.classList.add('active');
+      if (p.reviveCooldown > 0) {
+        const secs = Math.ceil(p.reviveCooldown / 60);
+        reviveBtn.textContent = `ВОЗРОЖДЕНИЕ ${secs}с`;
+        reviveBtn.classList.add('countdown');
+      } else {
+        reviveBtn.textContent = 'ВОЗРОДИТЬ';
+        reviveBtn.classList.remove('countdown');
+      }
+    }
+    if (portalBtn) {
+      if (p.portalCooldown > 0) {
+        portalBtn.classList.add('cooldown');
+        portalBtn.setAttribute('data-cd', Math.ceil(p.portalCooldown / 60));
+      } else {
+        portalBtn.classList.remove('cooldown');
+        portalBtn.removeAttribute('data-cd');
+      }
+    }
+    if (meleeBtn) {
+      if (p.meleeCooldown > 0) meleeBtn.classList.add('cooldown');
+      else meleeBtn.classList.remove('cooldown');
+    }
+  }
+  scoreEl.textContent = 'KILLS: ' + state.score;
+}
+
+function drawBackground() {
+  const gradL = ctx.createLinearGradient(0, 0, 0, DESIGN_H);
+  gradL.addColorStop(0, '#0a0a2a'); gradL.addColorStop(0.6, '#1a1a4a'); gradL.addColorStop(1, '#2a2a5a');
+  ctx.fillStyle = gradL; ctx.fillRect(0, 0, state.dividerX, DESIGN_H);
+  const gradR = ctx.createLinearGradient(0, 0, 0, DESIGN_H);
+  gradR.addColorStop(0, '#2a1a0a'); gradR.addColorStop(0.6, '#4a2a1a'); gradR.addColorStop(1, '#5a3a1a');
+  ctx.fillStyle = gradR; ctx.fillRect(state.dividerX, 0, DESIGN_W - state.dividerX, DESIGN_H);
+  for (const s of state.stars) {
+    s.y += s.speed * 0.2;
+    if (s.y > DESIGN_H * 0.7) { s.y = 0; s.x = Math.random() * DESIGN_W; }
+    const onLeft = s.x < state.dividerX;
+    ctx.fillStyle = onLeft ? (s.layer === 1 ? 'rgba(180,220,255,0.6)' : 'rgba(220,240,255,0.9)') : (s.layer === 1 ? 'rgba(255,220,180,0.6)' : 'rgba(255,240,220,0.9)');
+    ctx.fillRect(s.x, s.y, s.size, s.size);
+  }
+  ctx.fillStyle = 'rgba(150, 200, 255, 0.3)'; ctx.beginPath(); ctx.arc(DESIGN_W * 0.18, DESIGN_H * 0.16, 40, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = 'rgba(255, 200, 120, 0.3)'; ctx.beginPath(); ctx.arc(DESIGN_W * 0.82, DESIGN_H * 0.16, 45, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#1a2a4a'; ctx.fillRect(0, state.groundY, state.dividerX, DESIGN_H - state.groundY);
+  ctx.fillStyle = '#4a6aa0'; ctx.fillRect(0, state.groundY, state.dividerX, 6);
+  for (let i = 20; i < state.dividerX - 20; i += 60) {
+    ctx.fillStyle = 'rgba(120, 200, 255, 0.35)';
+    ctx.beginPath(); ctx.moveTo(i, state.groundY + 20); ctx.lineTo(i + 5, state.groundY + 5); ctx.lineTo(i + 10, state.groundY + 20); ctx.fill();
+  }
+  ctx.fillStyle = '#2a3a5a';
+  for (let i = 0; i < state.dividerX; i += 24) { ctx.fillRect(i + (i % 48), state.groundY + 28, 12, 4); ctx.fillRect(i + 8, state.groundY + 40, 8, 3); }
+  ctx.fillStyle = '#4a2a1a'; ctx.fillRect(state.dividerX, state.groundY, DESIGN_W - state.dividerX, DESIGN_H - state.groundY);
+  ctx.fillStyle = '#8a5a2a'; ctx.fillRect(state.dividerX, state.groundY, DESIGN_W - state.dividerX, 6);
+  for (let i = state.dividerX + 20; i < DESIGN_W - 20; i += 60) {
+    ctx.fillStyle = 'rgba(255, 180, 100, 0.35)';
+    ctx.fillRect(i, state.groundY + 15, 14, 8); ctx.fillRect(i + 4, state.groundY + 12, 6, 3);
+  }
+  ctx.fillStyle = '#5a3a1a';
+  for (let i = state.dividerX; i < DESIGN_W; i += 24) { ctx.fillRect(i + (i % 48), state.groundY + 28, 12, 4); ctx.fillRect(i + 8, state.groundY + 40, 8, 3); }
+  const pulse = 0.5 + Math.sin(Date.now() / 400) * 0.3;
+  ctx.strokeStyle = 'rgba(255,255,255,' + pulse + ')'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(state.dividerX, 0); ctx.lineTo(state.dividerX, DESIGN_H); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,0,255,' + (pulse * 0.4) + ')'; ctx.lineWidth = 8;
+  ctx.beginPath(); ctx.moveTo(state.dividerX, 0); ctx.lineTo(state.dividerX, DESIGN_H); ctx.stroke();
+  ctx.font = 'bold 14px Courier New'; ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(102,204,255,0.6)'; ctx.fillText('❄ ПЛАНЕТА РИКОВ ❄', state.dividerX / 2, state.groundY + 60);
+  ctx.fillStyle = 'rgba(255,180,80,0.6)'; ctx.fillText('☀ ПЛАНЕТА МОРТИ ☀', state.dividerX + (DESIGN_W - state.dividerX) / 2, state.groundY + 60);
+  ctx.textAlign = 'left';
+}
+
+function drawPortalEffects() {
+  for (const fx of state.portalEffects) {
+    const t = 1 - fx.life / fx.maxLife;
+    const radius = 15 + t * 80;
+    ctx.strokeStyle = 'rgba(0, 255, 200,' + (1 - t) + ')';
+    ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(fx.x, fx.y, radius, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = 'rgba(0, 255, 200,' + (0.6 * (1 - t)) + ')';
+    ctx.beginPath(); ctx.arc(fx.x, fx.y, radius * 0.7, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'rgba(200, 255, 255,' + (0.9 * (1 - t)) + ')';
+    ctx.beginPath(); ctx.arc(fx.x, fx.y, radius * 0.3, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'rgba(150, 100, 255,' + (0.7 * (1 - t)) + ')';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(fx.x, fx.y, radius * 0.9, 0, Math.PI*2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255, 255, 255,' + (0.9 * (1 - t)) + ')';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < 24; i++) {
+      const ang = i * 0.4 + t * 8;
+      const r = (i / 24) * radius * 0.85;
+      const x = fx.x + Math.cos(ang) * r;
+      const y = fx.y + Math.sin(ang) * r;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawGame() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#050510';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  let shakeX = 0, shakeY = 0;
+  if (state.screenShake > 0.5) {
+    shakeX = (Math.random() - 0.5) * state.screenShake;
+    shakeY = (Math.random() - 0.5) * state.screenShake;
+  }
+  ctx.setTransform(viewScale, 0, 0, viewScale, shakeX, shakeY);
+  drawBackground();
+  for (const a of state.aliens) a.draw();
+  for (const p of state.players) {
+    if (p.type === 'rick') drawRick(p); else drawMorty(p);
+  }
+  for (const proj of state.projectiles) {
+    const hex = proj.color.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    ctx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',0.35)';
+    ctx.beginPath(); ctx.arc(proj.x, proj.y, proj.radius * 2.2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = proj.color;
+    ctx.beginPath(); ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(proj.x, proj.y, proj.radius * 0.45, 0, Math.PI * 2); ctx.fill();
+  }
+  for (const proj of state.enemyProjectiles) {
+    const hex = proj.color.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16) || 170;
+    const g = parseInt(hex.substring(2, 4), 16) || 68;
+    const b = parseInt(hex.substring(4, 6), 16) || 221;
+    ctx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',0.35)';
+    ctx.beginPath(); ctx.arc(proj.x, proj.y, proj.radius * 2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = proj.color;
+    ctx.beginPath(); ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(proj.x, proj.y, proj.radius * 0.4, 0, Math.PI * 2); ctx.fill();
+  }
+  drawPortalEffects();
+  for (const ann of state.announcements) {
+    const alpha = Math.min(1, ann.life / 40);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold 32px Courier New';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 8;
+    ctx.strokeText(ann.text, DESIGN_W / 2, DESIGN_H * 0.3);
+    ctx.fillStyle = ann.color;
+    ctx.fillText(ann.text, DESIGN_W / 2, DESIGN_H * 0.3);
+    ctx.restore();
+  }
+}
+
+// Обёртка с try/catch чтобы ошибки не ломали игру
+function gameLoop() {
+  try {
+    updateGame();
+    drawGame();
+  } catch(e) {
+    console.error('Game loop error:', e);
+  }
+  requestAnimationFrame(gameLoop);
+}
+
+function resetGame() {
+  state.players = [createRick(), createMorty()];
+  state.players[0].spawnX = 30;
+  state.players[1].spawnX = DESIGN_W - 100;
+  state.players[0].x = 30;
+  state.players[1].x = DESIGN_W - 100;
+  for (const p of state.players) {
+    p.y = state.groundY - p.height;
+    if (isNaN(p.x)) p.x = 30;
+    if (isNaN(p.y)) p.y = state.groundY - p.height;
+  }
+  state.aliens = []; state.projectiles = []; state.enemyProjectiles = [];
+  state.portalEffects = []; state.announcements = [];
+  state.score = 0;
+  state.spawnTimerLeft = 0; state.spawnTimerRight = 0;
+  state.rickPrimeSpawned = false; state.evilMortySpawned = false;
+  state.screenShake = 0;
+  hp1Fill.style.width = '100%'; hp2Fill.style.width = '100%';
+  hp1Fill.className = 'hp-fill'; hp2Fill.className = 'hp-fill';
+  scoreEl.textContent = 'KILLS: 0';
+  bindButton('jump1', 0, 'jump');
+  bindButton('fire1', 0, 'attack');
+  bindButton('melee1', 0, 'melee');
+  bindButton('portal1', 0, 'portal');
+  bindButton('jump2', 1, 'jump');
+  bindButton('fire2', 1, 'attack');
+  bindButton('melee2', 1, 'melee');
+  bindButton('portal2', 1, 'portal');
+  revive1Overlay.classList.remove('active');
+  revive2Overlay.classList.remove('active');
+  updateHUD();
+}
+
+function startGame() {
+  resetGame();
+  state.gameStatus = 'playing';
+  lobbyEl.style.display = 'none';
+  gameOverEl.style.display = 'none';
+}
+function returnToLobby() {
+  state.gameStatus = 'lobby';
+  gameOverEl.style.display = 'none';
+  lobbyEl.style.display = 'flex';
+  state.aliens = []; state.projectiles = []; state.enemyProjectiles = [];
+  state.portalEffects = []; state.announcements = [];
+  for (const p of state.players) { p.alive = false; p.health = 0; }
+  updateHUD();
+}
+
+playBtn.addEventListener('click', startGame);
+playBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startGame(); }, { passive:false });
+lobbyBtn.addEventListener('click', returnToLobby);
+lobbyBtn.addEventListener('touchstart', (e) => { e.preventDefault(); returnToLobby(); }, { passive:false });
+revive1Btn.addEventListener('click', () => tryRevive(0));
+revive1Btn.addEventListener('pointerdown', (e) => { e.preventDefault(); tryRevive(0); });
+revive2Btn.addEventListener('click', () => tryRevive(1));
+revive2Btn.addEventListener('pointerdown', (e) => { e.preventDefault(); tryRevive(1); });
+
+resizeCanvas();
+state.players = [createRick(), createMorty()];
+state.players[0].spawnX = 30;
+state.players[1].spawnX = DESIGN_W - 100;
+for (const p of state.players) p.y = state.groundY - p.height;
+setupJoysticks();
+requestAnimationFrame(gameLoop);
+
+document.addEventListener('touchmove', (e) => {
+  if (e.target.closest('.joystick-zone') || e.target.closest('.action-btn') || e.target.closest('.revive-btn') || e.target.closest('.big-btn') || e.target.closest('#lobby-btn')) e.preventDefault();
+}, { passive: false });
+
+})();
+</script>
+</body>
+</html>
